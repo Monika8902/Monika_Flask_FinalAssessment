@@ -1,0 +1,121 @@
+1.USING PANDAS:
+
+data_loader.py:
+
+import pandas as pd
+from datetime import datetime
+
+def load_data():
+    df = pd.read_csv('hn_logs.tsv', sep='\t', header=None, names=['timestamp', 'query'])
+    df['timestamp'] = pd.to_datetime(df['timestamp'], format='%Y-%m-%d %H:%M:%S')
+    queries_data = df.groupby('timestamp')['query'].apply(list).to_dict()
+    return queries_data
+
+def get_distinct_queries(date_prefix, queries_data):
+    distinct_queries = set()
+    for timestamp, queries in queries_data.items():
+        if str(timestamp).startswith(date_prefix):
+            distinct_queries.update(queries)
+    return list(distinct_queries)
+
+
+app.py:
+
+from flask import Flask, jsonify
+from data_loader import load_data, get_distinct_queries
+from urllib.parse import unquote_plus
+
+app = Flask(__name__)
+
+queries_data = load_data()
+
+@app.route('/1/queries/count/<date_prefix>')
+def count_distinct_queries(date_prefix):
+    decoded_date_prefix = unquote_plus(date_prefix)
+    distinct_queries = get_distinct_queries(decoded_date_prefix, queries_data)
+    count = len(distinct_queries)
+    return jsonify({"count": count})
+
+if __name__ == '__main__':
+    app.run(host="0.0.0.0", port=8000, debug=True)
+
+
+2.WITHOUT PANDAS , JUST DATA STRUCTURES{dictionary,lists,set}
+
+data_loader.py:
+
+from datetime import datetime
+
+queries_data = {}
+
+
+def load_data():
+    global queries_data
+    with open('hn_logs.tsv', 'r') as file:
+        queries_data = {}
+        for line in file:
+            try:
+                timestamp, query = line.strip().split('\t', maxsplit=1)
+                if ":" in timestamp[-5:]:
+                    timestamp, additional_data = timestamp.rsplit(':', 1)
+                    timestamp_obj = datetime.strptime(timestamp, '%Y-%m-%d %H:%M')
+                else:
+                    timestamp_obj = datetime.strptime(timestamp, '%Y-%m-%d %H:%M')
+
+            except ValueError:
+                continue
+
+            queries_data.setdefault(timestamp_obj, []).append(query)
+
+
+def get_distinct_queries(date_prefix):
+    distinct_queries = set()
+    for timestamp, queries in queries_data.items():
+        if len(date_prefix) <= 4:
+            prefix_match = str(timestamp)[:4] == date_prefix
+        elif len(date_prefix) <= 7:
+            prefix_match = str(timestamp)[:7] == date_prefix
+        elif len(date_prefix) <= 10:
+            prefix_match = str(timestamp)[:10] == date_prefix
+        elif len(date_prefix) <= 16:
+            prefix_match = str(timestamp)[:16] == date_prefix[:16]
+        else:
+            prefix_match = str(timestamp)[:len(date_prefix)] == date_prefix
+
+        if prefix_match:
+            if len(date_prefix) == 16:
+                start_time = timestamp.replace(second=0, microsecond=0)
+                end_time = timestamp.replace(second=59, microsecond=999999)
+                if start_time <= timestamp <= end_time:
+                    distinct_queries.update(queries)
+            else:
+                distinct_queries.update(queries)
+
+    return list(distinct_queries)
+
+
+app.py:
+
+from flask import Flask, jsonify
+from data_loader import load_data, get_distinct_queries
+
+app = Flask(__name__)
+
+load_data()
+
+
+@app.route('/1/queries/count/<date_prefix>')
+def count_distinct_queries(date_prefix):
+    date_prefix = date_prefix.replace('+', ' ')
+    date_prefix = date_prefix.replace('%20', ' ')
+
+    distinct_queries = get_distinct_queries(date_prefix)
+    count = len(distinct_queries)
+    return jsonify({"count": count})
+
+
+if __name__ == '__main__':
+    app.run(host="0.0.0.0", port=8000, debug=True)
+
+
+
